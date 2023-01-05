@@ -14,6 +14,9 @@ def Vector.list : {n : Nat} → Vector α n → List α
 def Vector.all (v : Vector α n) (p : α → Prop) : Prop :=
   ∀ i, p (v i)
 
+def Vector.map {α : Type} (v : Vector α n) (f : α → β) : Vector β n := 
+  (f $ v ·)
+
 abbrev Op (α : Type) (arity : Nat) := (Vector α arity) → α
 
 instance : CoeHead (Op α 0) α where
@@ -118,6 +121,12 @@ structure Hom (alg₁ alg₂ : Algebra Δ) where
   hom : alg₁.carrier → alg₂.carrier
   property : ∀ σ cs, hom (alg₁.θ σ cs) = (alg₂.θ σ) (hom ∘ cs)
 
+theorem Hom.ext (hom₁ hom₂ : Hom alg₁ alg₂) : hom₁.hom = hom₂.hom → hom₁ = hom₂ := by
+  intro h
+  cases hom₁ <;> cases hom₂
+  simp at h
+  simp [h]
+
 instance : CoeFun (Hom alg₁ alg₂) (fun _ => alg₁.carrier → alg₂.carrier) where
   coe h := h.hom
 
@@ -147,6 +156,17 @@ structure FreelyGenerated (alg : Algebra Δ) (gen : Set alg.carrier) (k : Set $ 
   generated : ∀ c, c ∈ closure gen alg.ops
   free : ∀ (alg' : Algebra Δ) (f : gen → alg'.carrier), (alg' ∈ k) → 
          ∃! hom : Hom alg alg', ∀ c : gen, f c = hom c
+  
+-- Note, we immediately restrict this definition to the set of all algebras,
+-- as this is the only one we ever need.
+noncomputable def FreelyGenerated.hom {alg : Algebra Δ} {gen} 
+  (h : FreelyGenerated alg gen Set.univ) (target : Algebra Δ) (f : gen → target.carrier) : 
+  Hom alg target :=
+  choose (h.free target f Set.mem_univ)
+
+theorem FreelyGenerated.hom_extends (h : FreelyGenerated alg gen Set.univ) {f}: 
+  ∀ c : gen, f c = (h.hom target f) c := 
+  (choose_spec (h.free target f Set.mem_univ) |>.left ·)
   
 def BinOp.Associative (op : BinOp α) : Prop :=
   ∀ a b c, op (op a b) c = op a (op b c)
@@ -275,10 +295,21 @@ def Term.Vars (Δ : RankedAlphabet) (H : Type) : Set (Term Δ H)
   | .var .. => True
   | .app .. => False
 
-def Term.algebra (Δ : RankedAlphabet) (H : Type) : Algebra Δ where
+protected def Term.algebra (Δ : RankedAlphabet) (H : Type) : Algebra Δ where
   carrier := Term Δ H
   θ := Term.app
 
+-- Implementation detail of `Term.algebraHom`.
+private def Term.algebraHomImpl (target : Algebra Δ) (f : (Term.Vars Δ H) → target.carrier) : (Term.algebra Δ H).carrier → target.carrier
+  | .var c => f ⟨.var c, by simp [Term.Vars]⟩
+  | .app σ cs => target.θ σ (algebraHomImpl target f $ cs ·)
+
+-- Implementation detail of `Term.algebra_freelyGenerated`.
+private def Term.algebraHom (target : Algebra Δ) (f : (Term.Vars Δ H) → target.carrier) : Hom (Term.algebra Δ H) target where
+  hom := algebraHomImpl target f
+  property := fun _ _ => by simp [algebraHomImpl, Function.comp]
+
+-- Theorem 2.9.3
 theorem Term.algebra_freelyGenerated : FreelyGenerated (Term.algebra Δ H) (Term.Vars Δ H) Set.univ where
   mem := Set.mem_univ
   generated := by
@@ -292,4 +323,30 @@ theorem Term.algebra_freelyGenerated : FreelyGenerated (Term.algebra Δ H) (Term
       refine Closure.app ?_ hi
       simp [Term.algebra, Algebra.ops, Membership.mem]
       exists σ, rfl
-  free := sorry
+  free := by
+    intro target f _
+    simp [ExistsUnique]
+    exists algebraHom target f
+    constructor
+    case left =>
+      intro ⟨v, hv⟩
+      cases v
+      case app => contradiction
+      case var => simp [algebraHom, algebraHomImpl]
+    case right =>
+      intro hom h
+      apply Hom.ext
+      funext c
+      induction c
+      case a.h.var => simp [algebraHom, algebraHomImpl, h _]
+      case a.h.app σ cs hi =>
+        simp [Term.algebraHom, algebraHomImpl]
+        have h := hom.property σ cs
+        simp [Term.algebra] at h
+        simp [h]
+        congr
+        funext i
+        exact hi i
+
+
+        
