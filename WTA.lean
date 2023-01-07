@@ -4,6 +4,9 @@ def Vector (α : Type) (n : Nat) := Fin n → α
 
 def Vector.empty : Vector α 0 := (nomatch ·)
 
+def Vector.empty' (h : n = 0) : Vector α n := 
+  fun ⟨_, h'⟩ => by simp [h] at h'; contradiction
+
 def Vector.prefix (v : Vector α (n + 1)) : Vector α n := 
   fun i => v ⟨i.val, Nat.lt_succ_of_le $ Nat.le_of_lt i.isLt⟩
 
@@ -46,7 +49,11 @@ instance : Membership α (Set α) where
 instance : CoeSort (Set α) Type where
   coe s := { a : α // s a }
 
+abbrev Set.empty : Set α := fun _ => False
+
 abbrev Set.univ : Set α := fun _ => True
+
+abbrev Set.singleton (a : α) : Set α := (· = a)
 
 theorem Set.mem_univ : a ∈ Set.univ := .intro
 
@@ -57,6 +64,11 @@ theorem Set.mem_image_iff : (b ∈ Set.image f) ↔ (∃ a, f a = b) := ⟨id, i
 
 theorem Set.image_choose {b : β} : (h : b ∈ Set.image f) → (f $ choose h) = b :=
   choose_spec
+
+def Set.union (s₁ s₂ : Set α) := fun a => a ∈ s₁ ∨ a ∈ s₂
+
+theorem Set.mem_ext {s₁ s₂ : Set α} : (∀ a, a ∈ s₁ ↔ a ∈ s₂) → s₁ = s₂ :=
+  fun h => funext (fun a => propext (h a))
 
 abbrev Vector.lift {s : Set α} (v : Vector s n) : Vector α n := (v ·)
 
@@ -159,8 +171,8 @@ structure FreelyGenerated (alg : Algebra Δ) (gen : Set alg.carrier) (k : Set $ 
   
 -- Note, we immediately restrict this definition to the set of all algebras,
 -- as this is the only one we ever need.
-noncomputable def FreelyGenerated.hom {alg : Algebra Δ} {gen} 
-  (h : FreelyGenerated alg gen Set.univ) (target : Algebra Δ) (f : gen → target.carrier) : 
+noncomputable def FreelyGenerated.hom {alg : Algebra Δ} {H} 
+  (h : FreelyGenerated alg H Set.univ) (target : Algebra Δ) (f : H → target.carrier) : 
   Hom alg target :=
   choose (h.free target f Set.mem_univ)
 
@@ -348,5 +360,42 @@ theorem Term.algebra_freelyGenerated : FreelyGenerated (Term.algebra Δ H) (Term
         funext i
         exact hi i
 
+noncomputable def Term.algebra.hom (target : Algebra Δ) (f : (Term.Vars Δ H) → target.carrier) : 
+  Hom (Term.algebra Δ H) target :=
+  (Term.algebra_freelyGenerated).hom target f
 
+theorem Term.algebra.hom_extends (target) (f : _ → target.carrier) : 
+  ∀ v : Term.Vars Δ H, f v = (Term.algebra.hom target f) v.val :=
+  Term.algebra_freelyGenerated.hom_extends
+
+abbrev posAlgebra (Δ) : Algebra Δ where
+  carrier := Set (List Nat)
+  θ σ cs
+    | [] => True
+    | i :: tl => ∃ h : i < Δ.rank σ, tl ∈ cs ⟨i, h⟩
         
+noncomputable def Term.pos (Δ H) := 
+  Term.algebra.hom (H := H) (posAlgebra Δ) (fun _ => Set.singleton [])
+
+theorem Term.pos_var : (pos Δ H) (Term.var v) = Set.singleton [] :=
+  Eq.symm <| Term.algebra.hom_extends (posAlgebra Δ) (fun _ => Set.singleton []) ⟨var v, by simp [Term.Vars]⟩
+
+theorem Term.pos_app (σ cs) : (pos Δ H) (Term.app σ cs) = 
+  (fun | [] => True | i :: tl => ∃ h : i < Δ.rank σ, tl ∈ (pos Δ H) (cs ⟨i, h⟩)) :=
+  (pos Δ H).property σ cs
+
+theorem Term.pos_zero (h : Δ.rank σ = 0) : (pos Δ H) (Term.app σ $ Vector.empty' h) = Set.singleton [] := by
+  simp [Term.pos_app (H := H) σ (Vector.empty' h)]
+  refine Set.mem_ext ?_
+  intro w
+  constructor
+  all_goals
+    intro h'
+    simp [Set.singleton, Membership.mem] at *
+  case mpr => simp [h']
+  case mp =>
+    split at h'
+    · rfl
+    · have ⟨h', _⟩ := h'
+      rw [h] at h'
+      contradiction
