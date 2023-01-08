@@ -17,7 +17,7 @@ def Vector.list : {n : Nat} → Vector α n → List α
 def Vector.all (v : Vector α n) (p : α → Prop) : Prop :=
   ∀ i, p (v i)
 
-def Vector.map {α : Type} (v : Vector α n) (f : α → β) : Vector β n := 
+def Vector.map (v : Vector α n) (f : α → β) : Vector β n := 
   (f $ v ·)
 
 abbrev Op (α : Type) (arity : Nat) := (Vector α arity) → α
@@ -289,6 +289,8 @@ def StrongBimonoid.algebra (s : StrongBimonoid) : Algebra StrongBimonoid.ranked 
 structure Semiring extends StrongBimonoid where
   distributive : BinOp.Distrib mul add
 
+namespace Term
+
 inductive TermSymbol (Δ : RankedAlphabet) (H : Type)
   | alph (sym : Δ)
   | var (v : H)
@@ -297,32 +299,32 @@ inductive TermSymbol (Δ : RankedAlphabet) (H : Type)
   | «,»
 
 -- Note, we have to use the raw representation of a vector for `v` here.
-inductive Term (Δ : RankedAlphabet) (H : Type)
+inductive _root_.Term (Δ : RankedAlphabet) (H : Type)
   | var (h : H)
   | app (σ : Δ) (v : Fin (Δ.rank σ) → (Term Δ H))
 
 -- Note, we could replace this with a coercion from H to a set of terms,
 -- but that would have to be a `CoeDep` which isn't reliable enough.
-def Term.Vars (Δ : RankedAlphabet) (H : Type) : Set (Term Δ H)
+def Vars (Δ : RankedAlphabet) (H : Type) : Set (Term Δ H)
   | .var .. => True
   | .app .. => False
 
-protected def Term.algebra (Δ : RankedAlphabet) (H : Type) : Algebra Δ where
+protected def algebra (Δ : RankedAlphabet) (H : Type) : Algebra Δ where
   carrier := Term Δ H
-  θ := Term.app
+  θ := app
 
 -- Implementation detail of `Term.algebraHom`.
-private def Term.algebraHomImpl (target : Algebra Δ) (f : (Term.Vars Δ H) → target.carrier) : (Term.algebra Δ H).carrier → target.carrier
-  | .var c => f ⟨.var c, by simp [Term.Vars]⟩
+private def algebraHomImpl (target : Algebra Δ) (f : Vars Δ H → target.carrier) : (Term.algebra Δ H).carrier → target.carrier
+  | .var c => f ⟨.var c, by simp [Vars]⟩
   | .app σ cs => target.θ σ (algebraHomImpl target f $ cs ·)
 
 -- Implementation detail of `Term.algebra_freelyGenerated`.
-private def Term.algebraHom (target : Algebra Δ) (f : (Term.Vars Δ H) → target.carrier) : Hom (Term.algebra Δ H) target where
+private def algebraHom (target : Algebra Δ) (f : Vars Δ H → target.carrier) : Hom (Term.algebra Δ H) target where
   hom := algebraHomImpl target f
   property := fun _ _ => by simp [algebraHomImpl, Function.comp]
 
 -- Theorem 2.9.3
-theorem Term.algebra_freelyGenerated : FreelyGenerated (Term.algebra Δ H) (Term.Vars Δ H) Set.univ where
+theorem algebra_freelyGenerated : FreelyGenerated (Term.algebra Δ H) (Vars Δ H) Set.univ where
   mem := Set.mem_univ
   generated := by
     intro c
@@ -330,7 +332,7 @@ theorem Term.algebra_freelyGenerated : FreelyGenerated (Term.algebra Δ H) (Term
     induction c
     case var h => 
       apply Closure.root 
-      simp [Membership.mem, Term.Vars]
+      simp [Membership.mem, Vars]
     case app σ v hi =>
       refine Closure.app ?_ hi
       simp [Term.algebra, Algebra.ops, Membership.mem]
@@ -352,7 +354,7 @@ theorem Term.algebra_freelyGenerated : FreelyGenerated (Term.algebra Δ H) (Term
       induction c
       case a.h.var => simp [algebraHom, algebraHomImpl, h _]
       case a.h.app σ cs hi =>
-        simp [Term.algebraHom, algebraHomImpl]
+        simp [algebraHom, algebraHomImpl]
         have h := hom.property σ cs
         simp [Term.algebra] at h
         simp [h]
@@ -360,32 +362,38 @@ theorem Term.algebra_freelyGenerated : FreelyGenerated (Term.algebra Δ H) (Term
         funext i
         exact hi i
 
-noncomputable def Term.algebra.hom (target : Algebra Δ) (f : (Term.Vars Δ H) → target.carrier) : 
+protected noncomputable def algebra.hom (target : Algebra Δ) (f : Vars Δ H → target.carrier) : 
   Hom (Term.algebra Δ H) target :=
-  (Term.algebra_freelyGenerated).hom target f
+  (algebra_freelyGenerated).hom target f
 
-theorem Term.algebra.hom_extends (target) (f : _ → target.carrier) : 
-  ∀ v : Term.Vars Δ H, f v = (Term.algebra.hom target f) v.val :=
+theorem algebra.hom_extends (target) (f : _ → target.carrier) : 
+  ∀ v : Vars Δ H, f v = (Term.algebra.hom target f) v.val :=
   Term.algebra_freelyGenerated.hom_extends
 
+abbrev Pos := List Nat
+
+abbrev Pos.ε : Pos := []
+
+infixl:50 " ⬝ " => List.cons
+
 abbrev posAlgebra (Δ) : Algebra Δ where
-  carrier := Set (List Nat)
+  carrier := Set Pos
   θ σ cs
-    | [] => True
-    | i :: tl => ∃ h : i < Δ.rank σ, tl ∈ cs ⟨i, h⟩
+    | .ε => True
+    | i ⬝ tl => ∃ h : i < Δ.rank σ, tl ∈ cs ⟨i, h⟩
         
-noncomputable def Term.pos (Δ H) := 
-  Term.algebra.hom (H := H) (posAlgebra Δ) (fun _ => Set.singleton [])
+noncomputable def pos {Δ H} := 
+  Term.algebra.hom (H := H) (posAlgebra Δ) (fun _ => Set.singleton .ε)
 
-theorem Term.pos_var : (pos Δ H) (Term.var v) = Set.singleton [] :=
-  Eq.symm <| Term.algebra.hom_extends (posAlgebra Δ) (fun _ => Set.singleton []) ⟨var v, by simp [Term.Vars]⟩
+theorem pos_var : (@pos Δ H) (var v) = Set.singleton [] :=
+  Eq.symm <| Term.algebra.hom_extends (posAlgebra Δ) (fun _ => Set.singleton .ε) ⟨var v, by simp [Vars]⟩
 
-theorem Term.pos_app (σ cs) : (pos Δ H) (Term.app σ cs) = 
-  (fun | [] => True | i :: tl => ∃ h : i < Δ.rank σ, tl ∈ (pos Δ H) (cs ⟨i, h⟩)) :=
-  (pos Δ H).property σ cs
+theorem pos_app (σ cs) : (@pos Δ H) (app σ cs) = 
+  (fun | .ε => True | i ⬝ tl => ∃ h : i < Δ.rank σ, tl ∈ pos (cs ⟨i, h⟩)) :=
+  pos.property σ cs
 
-theorem Term.pos_zero (h : Δ.rank σ = 0) : (pos Δ H) (Term.app σ $ Vector.empty' h) = Set.singleton [] := by
-  simp [Term.pos_app (H := H) σ (Vector.empty' h)]
+theorem pos_zero (h : Δ.rank σ = 0) : (@pos Δ H) (app σ $ Vector.empty' h) = Set.singleton .ε := by
+  simp [pos_app (H := H) σ (Vector.empty' h)]
   refine Set.mem_ext ?_
   intro w
   constructor
@@ -399,3 +407,51 @@ theorem Term.pos_zero (h : Δ.rank σ = 0) : (pos Δ H) (Term.app σ $ Vector.em
     · have ⟨h', _⟩ := h'
       rw [h] at h'
       contradiction
+
+theorem mem_pos : (i ⬝ w) ∈ (@pos Δ H) (app σ cs) → ∃ h : i < Δ.rank σ, (w ∈ pos (cs ⟨i, h⟩)) := by
+  intro h
+  rw [pos_app] at h
+  simp [Membership.mem] at h
+  exact h
+
+structure TP (Δ H) where
+  ξ : Term Δ H
+  w : { w // w ∈ pos ξ }
+
+-- TODO: How should vars be handled?
+def label : TP Δ H → Δ 
+  | ⟨var v, _⟩ => sorry
+  | ⟨app σ ξs, ⟨.ε, _⟩⟩ => σ
+  | ⟨app σ ξs, ⟨i ⬝ w', h⟩⟩ => label { 
+      ξ := ξs ⟨i, choose $ mem_pos h⟩, 
+      w := ⟨w', choose_spec $ mem_pos h⟩
+    }
+termination_by label tp => tp.w.val.length
+
+-- TODO: Figure out if this is ok.
+notation ξ "(" w ")" => Term.label (TP.mk ξ w)
+
+def subtree : TP Δ H → Term Δ H
+  | ⟨var v, _⟩ => var v
+  | ⟨ξ, ⟨.ε, _⟩⟩ => ξ
+  | ⟨app σ ξs, ⟨i ⬝ w', h⟩⟩ => subtree { 
+      ξ := ξs ⟨i, choose $ mem_pos h⟩, 
+      w := ⟨w', choose_spec $ mem_pos h⟩
+    }
+termination_by subtree tp => tp.w.val.length
+
+-- TODO: Figure out if this is ok.
+notation ξ "∣" w => Term.subtree (TP.mk ξ w)
+
+def replacement (tp : TP Δ H) (ζ : Term Δ H) : Term Δ H :=
+  match tp with
+  | ⟨var _, _⟩ | ⟨_, ⟨.ε, _⟩⟩ => ζ
+  | ⟨app σ ξs, ⟨i ⬝ w', h⟩⟩ => 
+    let tp' := { ξ := ξs ⟨i, choose $ mem_pos h⟩, w := ⟨w', choose_spec $ mem_pos h⟩ }
+    app σ (fun j => if i = j then replacement tp' ζ else ξs j)
+termination_by replacement tp _ => tp.w.val.length
+
+-- TODO: Figure out if this is ok.
+notation ξ "[" ζ "]" w => Term.replacement (TP.mk ξ w) ζ
+
+end Term
