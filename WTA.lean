@@ -1,29 +1,33 @@
 open Classical
 
+theorem const_func_ext [Nonempty α] {a b : β} : (fun _ : α => a) = (fun _ => b) → (a = b) := by  
+  intro h
+  have ha : (fun _ : α => a) (choice inferInstance) = a := rfl
+  have hb : (fun _ : α => b) (choice inferInstance) = b := rfl
+  rw [←ha, ←hb, h]
+
 def Vector (α : Type) (n : Nat) := Fin n → α  
 
-def Vector.empty : Vector α 0 := (nomatch ·)
+infix:95 "⋆" => Vector
 
-def Vector.empty' (h : n = 0) : Vector α n := 
+def Vector.ε : α⋆0 := (nomatch ·)
+
+def Vector.ε' (h : n = 0) : α⋆n := 
   fun ⟨_, h'⟩ => by simp [h] at h'; contradiction
 
-def Vector.prefix (v : Vector α (n + 1)) : Vector α n := 
-  fun i => v ⟨i.val, Nat.lt_succ_of_le $ Nat.le_of_lt i.isLt⟩
+def Vector.prefix (as : α⋆(n + 1)) : α⋆n := 
+  fun i => as ⟨i.val, Nat.lt_succ_of_le $ Nat.le_of_lt i.isLt⟩
 
-def Vector.list : {n : Nat} → Vector α n → List α
-  | 0,     _ => []
-  | n + 1, v => v.prefix.list ++ [v ⟨n, Nat.lt_succ_self _⟩]
-
-def Vector.all (v : Vector α n) (p : α → Prop) : Prop :=
+def Vector.all (v : α⋆n) (p : α → Prop) : Prop :=
   ∀ i, p (v i)
 
-def Vector.map (v : Vector α n) (f : α → β) : Vector β n := 
+def Vector.map (v : α⋆n) (f : α → β) : β⋆n := 
   (f $ v ·)
 
-abbrev Op (α : Type) (arity : Nat) := (Vector α arity) → α
+abbrev Op (α : Type) (n : Nat) := α⋆n → α
 
 instance : CoeHead (Op α 0) α where
-  coe op := op Vector.empty
+  coe op := op Vector.ε
 
 abbrev BinOp (α : Type) := α → α → α
 
@@ -33,7 +37,6 @@ instance : Coe (Op α 2) (BinOp α) where
 instance : CoeTail (BinOp α) (Op α 2) where
   coe op as := op (as 0) (as 1)
 
--- < Mathlib 4
 def ExistsUnique (p : α → Prop) := ∃ x, p x ∧ ∀ y, p y → y = x
 
 open Lean TSyntax.Compat in
@@ -51,6 +54,13 @@ instance : CoeSort (Set α) Type where
 
 abbrev Set.empty : Set α := fun _ => False
 
+instance : EmptyCollection (Set α) := ⟨Set.empty⟩
+
+def Set.Nonempty (s : Set α) : Prop := s ≠ ∅
+
+def Set.Nonempty.iff_exists_mem : Set.Nonempty s ↔ ∃ a, a ∈ s := by
+  sorry
+
 abbrev Set.univ : Set α := fun _ => True
 
 abbrev Set.singleton (a : α) : Set α := (· = a)
@@ -67,12 +77,71 @@ theorem Set.image_choose {b : β} : (h : b ∈ Set.image f) → (f $ choose h) =
 
 def Set.union (s₁ s₂ : Set α) := fun a => a ∈ s₁ ∨ a ∈ s₂
 
+def Set.bUnion (s : Set (Set α)) : Set α := 
+  fun a => ∃ m, m ∈ s ∧ a ∈ m
+
+def Set.Subset (s₁ s₂ : Set α) : Prop :=
+  ∀ a, a ∈ s₁ → a ∈ s₂
+
+infix:50 " ⊆ " => Set.Subset
+
 theorem Set.mem_ext {s₁ s₂ : Set α} : (∀ a, a ∈ s₁ ↔ a ∈ s₂) → s₁ = s₂ :=
   fun h => funext (fun a => propext (h a))
 
-abbrev Vector.lift {s : Set α} (v : Vector s n) : Vector α n := (v ·)
+abbrev Vector.lift {s : Set α} (v : s⋆n) : α⋆n := (v ·)
 
--- Mathlib 4 >
+abbrev Word (α : Type) := List α
+
+postfix:95 "⋆" => Word
+
+abbrev Word.ε : α⋆ := []
+
+@[match_pattern]
+abbrev Word.prepend : α → α⋆ → α⋆ := List.cons
+
+abbrev Word.append (u : α⋆) (i : α) : α⋆ := u ++ [i]
+
+infixl:70 "⬝" => Word.prepend
+
+infixl:70 "•" => Word.append
+
+def Word.prefixes : α⋆ → Set (α⋆)
+  | .ε => Set.singleton .ε
+  | i⬝v => fun u => (u = i⬝v) ∨ (u ∈ prefixes v)
+
+@[simp] 
+theorem Set.mem_singleton : a ∈ Set.singleton a := by
+  simp [singleton, Membership.mem]
+
+theorem Word.ε_mem_prefixes (u : Word α) : .ε ∈ u.prefixes := by
+  induction u
+  case nil => simp [prefixes, Set.mem_singleton]
+  case cons i v hi => 
+    simp [prefixes] 
+    simp [Membership.mem] at *
+    exact hi
+
+def Vector.word : {n : Nat} → α⋆n → α⋆
+  | 0,     _ => []
+  | n + 1, as => as.prefix.word ++ [as ⟨n, Nat.lt_succ_self _⟩]
+
+def Vector.prefixes : {n : Nat} → (α⋆n) → Set (α⋆)
+  | 0,     _  => Set.singleton .ε
+  | _ + 1, as => fun u => (u = as.word) ∨ (u ∈ as.prefix.prefixes)
+
+def Function.Injective (f : α → β) : Prop :=
+  ∀ a₁ a₂, (f a₁ = f a₂) → a₁ = a₂
+
+def Function.Surjective (f : α → β) : Prop :=
+  ∀ b, ∃ a, f a = b
+
+structure Function.Bijective (f : α → β) : Prop where
+  inj : Function.Injective f
+  surj : Function.Surjective f
+
+
+-----------------------------------------------------------------------------------------
+
 
 class Alphabet (α : Type) where
   [nonempty : Nonempty α]
@@ -96,7 +165,7 @@ def Algebra.ops (alg : Algebra Δ) : Set (Σ k : Nat, Op alg.carrier k) :=
 def Closed (alg : Algebra Δ) (sub : Set alg.carrier) : Prop :=
   ∀ σ (cs : Vector sub $ Δ.rank σ), (alg.θ σ cs.lift) ∈ sub
 
-theorem Algebra.closed (alg : Algebra Δ) : Closed alg Set.univ := by
+theorem Algebra.carrier_closed (alg : Algebra Δ) : Closed alg Set.univ := by
   simp [Closed, Set.mem_univ]
 
 -- Note that this defines a `Set`.
@@ -163,6 +232,14 @@ def Hom.compose (hom₁₂ : Hom alg₁ alg₂) (hom₂₃ : Hom alg₂ alg₃) 
 
 infixr:90 " ∘ " => Hom.compose
 
+structure Iso (alg₁ alg₂ : Algebra Δ) extends Hom alg₁ alg₂ where
+  bij : Function.Bijective hom
+
+def Isomorphic (alg₁ alg₂ : Algebra Δ) : Prop :=
+  Nonempty (Iso alg₁ alg₂)
+
+infix:50 " ≅ " => Isomorphic
+
 structure FreelyGenerated (alg : Algebra Δ) (gen : Set alg.carrier) (k : Set $ Algebra Δ) : Prop where
   mem : alg ∈ k
   generated : ∀ c, c ∈ closure gen alg.ops
@@ -180,6 +257,10 @@ theorem FreelyGenerated.hom_extends (h : FreelyGenerated alg gen Set.univ) {f}:
   ∀ c : gen, f c = (h.hom target f) c := 
   (choose_spec (h.free target f Set.mem_univ) |>.left ·)
   
+
+-----------------------------------------------------------------------------------------
+
+
 def BinOp.Associative (op : BinOp α) : Prop :=
   ∀ a b c, op (op a b) c = op a (op b c)
 
@@ -289,6 +370,10 @@ def StrongBimonoid.algebra (s : StrongBimonoid) : Algebra StrongBimonoid.ranked 
 structure Semiring extends StrongBimonoid where
   distributive : BinOp.Distrib mul add
 
+
+-----------------------------------------------------------------------------------------
+
+
 namespace Term
 
 inductive TermSymbol (Δ : RankedAlphabet) (H : Type)
@@ -370,14 +455,12 @@ theorem algebra.hom_extends (target) (f : _ → target.carrier) :
   ∀ v : Vars Δ H, f v = (Term.algebra.hom target f) v.val :=
   Term.algebra_freelyGenerated.hom_extends
 
-abbrev Pos := List Nat
 
-abbrev Pos.ε : Pos := []
+-----------------------------------------------------------------------------------------
 
-infixl:50 " ⬝ " => List.cons
 
 abbrev posAlgebra (Δ) : Algebra Δ where
-  carrier := Set Pos
+  carrier := Set (Nat⋆)
   θ σ cs
     | .ε => True
     | i ⬝ tl => ∃ h : i < Δ.rank σ, tl ∈ cs ⟨i, h⟩
@@ -392,8 +475,8 @@ theorem pos_app (σ cs) : (@pos Δ H) (app σ cs) =
   (fun | .ε => True | i ⬝ tl => ∃ h : i < Δ.rank σ, tl ∈ pos (cs ⟨i, h⟩)) :=
   pos.property σ cs
 
-theorem pos_zero (h : Δ.rank σ = 0) : (@pos Δ H) (app σ $ Vector.empty' h) = Set.singleton .ε := by
-  simp [pos_app (H := H) σ (Vector.empty' h)]
+theorem pos_zero (h : Δ.rank σ = 0) : (@pos Δ H) (app σ $ Vector.ε' h) = Set.singleton .ε := by
+  simp [pos_app (H := H) σ (Vector.ε' h)]
   refine Set.mem_ext ?_
   intro w
   constructor
@@ -414,14 +497,16 @@ theorem mem_pos : (i ⬝ w) ∈ (@pos Δ H) (app σ cs) → ∃ h : i < Δ.rank 
   simp [Membership.mem] at h
   exact h
 
+theorem ε_mem_pos : .ε ∈ (@pos Δ H) ξ := by
+  sorry
+
 structure TP (Δ H) where
   ξ : Term Δ H
   w : { w // w ∈ pos ξ }
 
--- TODO: How should vars be handled?
-def label : TP Δ H → Δ 
-  | ⟨var v, _⟩ => sorry
-  | ⟨app σ ξs, ⟨.ε, _⟩⟩ => σ
+def label : TP Δ H → (Sum Δ H)
+  | ⟨var v, _⟩ => .inr v
+  | ⟨app σ _, ⟨.ε, _⟩⟩ => .inl σ
   | ⟨app σ ξs, ⟨i ⬝ w', h⟩⟩ => label { 
       ξ := ξs ⟨i, choose $ mem_pos h⟩, 
       w := ⟨w', choose_spec $ mem_pos h⟩
@@ -429,7 +514,7 @@ def label : TP Δ H → Δ
 termination_by label tp => tp.w.val.length
 
 -- TODO: Figure out if this is ok.
-notation ξ "(" w ")" => Term.label (TP.mk ξ w)
+notation ξ "°" w => Term.label (TP.mk ξ w)
 
 def subtree : TP Δ H → Term Δ H
   | ⟨var v, _⟩ => var v
@@ -455,3 +540,123 @@ termination_by replacement tp _ => tp.w.val.length
 notation ξ "[" ζ "]" w => Term.replacement (TP.mk ξ w) ζ
 
 end Term
+
+
+-----------------------------------------------------------------------------------------
+
+
+def RankedAlphabet.lift (Γ : Type) [Alphabet Γ] : RankedAlphabet where
+  alphabet := Option Γ
+  rank
+    | some _ => 1
+    | none => 0
+  isAlphabet := {
+    nonempty := inferInstance
+    finite := sorry
+  }
+
+def stringAlgebra (Γ : Type) [Alphabet Γ] : Algebra (RankedAlphabet.lift Γ) where
+  carrier := (Γ⋆)
+  θ 
+    | some σ => fun ws => σ ⬝ (ws ⟨0, by simp [RankedAlphabet.lift]⟩)
+    | none => fun _ => .ε
+
+def treeₑ [Alphabet Γ] : Γ⋆ → Term (RankedAlphabet.lift Γ) Empty
+  | .ε => (Term.algebra (RankedAlphabet.lift Γ) Empty).θ none (nomatch ·) 
+  | σ⬝w => .app (some σ) (fun _ => treeₑ w)
+
+theorem Term.algebra_iso_stringAlgebra (Γ : Type) [Alphabet Γ] : 
+  Isomorphic (stringAlgebra Γ) (Term.algebra (RankedAlphabet.lift Γ) Empty) := by
+  unfold Isomorphic
+  apply Nonempty.intro
+  exact {
+    hom := treeₑ
+    property := by
+      intro σ w
+      cases σ
+      all_goals simp [Term.algebra, stringAlgebra]
+      case none =>
+        simp [Function.comp, treeₑ, Term.algebra]
+        funext ⟨_, h⟩
+        simp [RankedAlphabet.lift] at h
+        contradiction
+      case some σ =>
+        simp [stringAlgebra, RankedAlphabet.lift] at w
+        generalize hw : w ⟨0, stringAlgebra.proof_1⟩ = w'
+        simp [treeₑ, Function.comp]
+        funext ⟨i, hi⟩
+        have hi : i = 0 := by 
+          simp [RankedAlphabet.lift] at hi
+          cases i
+          case zero => rfl
+          case succ => contradiction
+        simp [hw, hi]
+    bij := {
+      inj := by 
+        simp [Function.Injective]
+        intro σ₁ σ₂ h
+        induction σ₁ generalizing σ₂ <;> cases σ₂ <;> simp [treeₑ, Term.algebra] at *
+        case cons.cons σ _ hi _ _ =>
+          have ⟨h₁, h₂⟩ := h
+          injection h₁ with h₁          
+          have : Nonempty (Fin $ (RankedAlphabet.lift Γ).rank $ some σ) := 
+            .intro ⟨0, by simp [RankedAlphabet.lift]⟩ 
+          simp [h₁, hi _ (const_func_ext h₂)]
+      surj := by
+        simp [Function.Surjective]
+        intro a
+        induction a
+        case var => contradiction
+        case app σ w hi =>
+          cases σ 
+          case none => 
+            exists .ε
+            simp [treeₑ, Term.algebra]
+            funext ⟨_, h⟩
+            simp [RankedAlphabet.lift] at h
+            contradiction
+          case some σ => 
+            have ⟨a, h⟩ := hi ⟨0, by simp [RankedAlphabet.lift]⟩
+            exists σ⬝a
+            simp [h, treeₑ]
+            refine congrArg _ ?_
+            funext ⟨i, hi⟩
+            have hi : i = 0 := by 
+              simp [RankedAlphabet.lift] at hi
+              cases i
+              case zero => rfl
+              case succ => contradiction
+            simp [hi]
+    }
+  }
+
+-----------------------------------------------------------------------------------------
+
+
+-- TODO: Change W to be a Finset.
+structure TreeDomain (W : Set (Nat⋆)) : Prop where
+  nonempty : Set.Nonempty W
+  prefixClosed : Set.bUnion (Set.image Word.prefixes) ⊆ W
+  leftClosed : ∀ u i, (u•i ∈ W) → u•(i - 1) ∈ W
+
+theorem TreeDomain.ε_mem : TreeDomain W → .ε ∈ W := by
+  intro h
+  apply h.prefixClosed .ε
+  simp [Set.bUnion, Membership.mem]
+  have ⟨m, _⟩ := Set.Nonempty.iff_exists_mem.mp h.nonempty
+  exists m.prefixes
+  constructor
+  case left => exists m
+  case right => apply Word.ε_mem_prefixes
+
+theorem Term.pos_treeDomain (ξ : Term Δ H) : TreeDomain (pos ξ) where
+  nonempty := Set.Nonempty.iff_exists_mem.mpr ⟨_, Term.ε_mem_pos⟩
+  prefixClosed := sorry
+  leftClosed := sorry
+
+-- TEMPORARY
+def Set.size : Set α → Nat := sorry
+
+structure TreeMapping {Δ : RankedAlphabet} {W : Set (Nat⋆)} (t : W → Δ) where
+  domain : TreeDomain W
+  rankPreservation : ∀ w, Set.size (fun j => w.val•j ∈ W) = Δ.rank (t w)
